@@ -1,0 +1,63 @@
+
+# ============================================================
+# Google Drive API Settings
+# ============================================================
+google_drive:
+
+  # Path to your Google OAuth client credentials JSON file.
+  # Download from Google Cloud → API & Services → Credentials.
+  credentials_file: ./Json/credentials.json
+
+  # Whether to save the OAuth access token to disk.
+  # If True, token.json is created and reused on next runs.
+  save_token: True
+
+  # Path to store the generated OAuth token (token.json).
+  # Only used when save_token=True.
+  save_token_file: ./Json/token.json
+
+  # OAuth scopes required by the script.
+  # "drive.file" allows uploading and modifying your own files.
+  oauth_scope:
+    - https://www.googleapis.com/auth/drive.file
+
+
+# ============================================================
+# Proxy Settings
+# ============================================================
+proxy:
+
+  # Proxy server used for Google Drive upload (optional).
+  # Supported formats:
+  #   - 127.0.0.1:1080
+  #   - http://127.0.0.1:1080
+  #   - socks4://127.0.0.1:1080
+  #   - socks5://127.0.0.1:1080
+  # If null, no proxy is used.
+  proxy_server: socks://127.0.0.1:1080
+
+
+# ============================================================
+# Upload Settings
+# ============================================================
+upload:
+
+  # Local file path or list of local files to upload.
+  # Examples:
+  #   - "data.zip"
+  #   - ["a.txt", "b.txt"]
+  # If null, must be provided by CLI argument -n / --name.
+  local_file: file_path
+
+  # The filename(s) to be used in Google Drive.
+  # If null, Google Drive will use the local filename(s) by default.
+  # Must match the length of local_file if both are lists.
+  save_file_name: null
+
+  # The target folder ID in Google Drive.
+  # If null, uploads to the root directory ("My Drive").
+  save_folder_id: null
+
+  # Log file name.
+  # If null, log messages are printed to console only.
+  log: null
