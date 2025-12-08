@@ -41,7 +41,8 @@ class GoogleDriveTools:
         # Manual override parameters:
         cred_file=None,
         proxy=None,
-        log=None):
+        log=None,
+        show_settings: bool = False):
         """
         Initialize GoogleDriveTools.
 
@@ -63,11 +64,17 @@ class GoogleDriveTools:
             Log file path.
             log = None (use setting.log) | "off" (use stdout) | other string (override setting.log).
             e.g., "log.txt"
+        show_settings : bool
+            Whether to print loaded settings to console. Default: False.
         """
+        if show_settings:
+            print("========== Google Drive Tools CLI ==========")
 
         # ---------- Step 1. Load settings ----------
         if settings_path is not None:
             self.settings = self.load_settings(settings_path, inplaces=False)
+            if show_settings:
+                print(f"===== settings: {settings_path}")
         else:
             # No settings.yaml → create an empty config structure
             self.settings = AttrDict({
@@ -83,27 +90,43 @@ class GoogleDriveTools:
                         "local_file": None,
                         "save_file_name": None,
                         "save_folder_id": None,
+                        "chunksize": 10485760,  # 10 MB
                     }),
                     "download": AttrDict({
-                        "save_local_dir": None,
-                        "file_id": None,     
+                        "save_local_dir": './download',
+                        "file_id": None,    
+                        "chunksize": 10485760,  # 10 MB 
                     })
                 })
+            if show_settings:
+                print("settings: off (without settings yaml file)")
         
         
         # ---------- Step 2. Apply manual overrides ----------
         if cred_file is not None:
             self.settings.google_drive.credentials_file = cred_file
+        if show_settings:
+            print('===== cred_file:', self.settings.google_drive.credentials_file)
         if proxy is not None:
             # proxy = None (use setting.proxy) | "off" (override to direct connection) |  else override by proxy
             if proxy.lower() == "off":
                 proxy = None
             self.settings.proxy = proxy
+        if show_settings:
+            if self.settings.proxy is None:
+                print('===== proxy: off (direct connection)')
+            else:
+                print('===== proxy:', self.settings.proxy)
         if log is not None:
             # log = None (use setting.log) | "off" (override to stdout) |  else override by log_file
             if log.lower() == "off":
                 log = None
             self.settings.log = log
+        if show_settings:
+            if self.settings.log is None:
+                print('===== log: off (stdout)')
+            else:
+                print('===== log:', self.settings.log)
         self.logger = self.set_logger(self.settings.log, inplaces=False)
         # check
         if self.settings.google_drive.credentials_file is None:
@@ -277,7 +300,7 @@ class GoogleDriveTools:
                local_file=None,
                save_file_name=None,
                folder_id=None,
-               chunksize=1024*1024*10) -> list[tuple[str, str]]:
+               chunksize=None) -> list[tuple[str, str]]:
         """
         Upload one or multiple files to Google Drive.
         Parameters
@@ -288,8 +311,8 @@ class GoogleDriveTools:
             Name(s) to use on Drive. If None, use local filenames.
         folder_id : str or None
             Drive folder ID. If None, upload to root or settings.upload.save_folder_id.
-        chunksize : int
-            Chunk size for resumable upload in bytes. Default chunk size 10MB (1024*1024*10) .
+        chunksize : int or None
+            Chunk size for resumable upload in bytes. If None, use settings.upload.chunksize.
             
         Returns 
         -------
@@ -302,6 +325,8 @@ class GoogleDriveTools:
             folder_id = self.settings.upload.save_folder_id
         if save_file_name is None:
             save_file_name = self.settings.upload.save_file_name
+        if chunksize is None:
+            chunksize = self.settings.upload.chunksize
 
         # Normalize to list (local_file)
         if isinstance(local_file, (str, os.PathLike)):
@@ -352,7 +377,7 @@ class GoogleDriveTools:
             file_metadata["parents"] = [folder_id]
         
         # Upload file
-        media = MediaFileUpload(local_file, resumable=True, chunksize=chunksize)
+        media = MediaFileUpload(local_file, resumable=True, chunksize=int(chunksize))
         file_size_bytes = os.path.getsize(local_file)
         self.logger.info("Uploading %s -> %s ...", local_file, save_file_name)
         request = self.service.files().create(
@@ -381,7 +406,7 @@ class GoogleDriveTools:
     def download(self,
                  file_id: str | list[str] | None = None,
                  save_local_dir: str | None = None,
-                 chunksize=1024*1024*10) -> list[str]:
+                 chunksize=None) -> list[str]:
         """
         Download one or multiple files from Google Drive.
 
@@ -390,9 +415,9 @@ class GoogleDriveTools:
         file_id : str or list[str] or None
             One file ID or a list of file IDs. If None, use settings.download.file_id.
         save_local_dir : str or list[str] or None
-            Local directory to save file(s). If None, use current working directory.
-        chunksize : int
-            Chunk size for resumable download in bytes. Default chunk size 10MB (1024*1024*10) .
+            Local directory to save file(s). If None, use settings.download.save_local_dir.
+        chunksize : int or None
+            Chunk size for resumable download in bytes. If None, use settings.download.chunksize.
 
         Returns
         -------
@@ -407,6 +432,8 @@ class GoogleDriveTools:
                 raise ValueError("file_id is None and settings.download.file_id not found.")
         if save_local_dir is None:
             save_local_dir = self.settings.download.save_local_dir
+        if chunksize is None:
+            chunksize = self.settings.download.chunksize
 
         # Normalize file_id to list
         if isinstance(file_id, str):
@@ -424,7 +451,7 @@ class GoogleDriveTools:
         for n in range(len(file_id_list)):
             self.logger.info("Download Progress: [ %d / %d ]", n+1, len(file_id_list))
             file_id = file_id_list[n]
-            local_path = self._download_single(file_id, save_local_dir, chunksize=chunksize)
+            local_path = self._download_single(file_id, save_local_dir, chunksize=int(chunksize))
             results.append(local_path)
         return results
     
@@ -447,6 +474,8 @@ class GoogleDriveTools:
         file_name = meta.get("name", file_id)
         size_str = meta.get("size")
         file_size_bytes = int(size_str) if size_str is not None else 0
+        if save_local_dir is None:
+            save_local_dir = ''
         local_path = os.path.join(save_local_dir, file_name)
         self.logger.info("Downloading %s <- %s (id=%s) ...",
                          local_path, file_name, file_id)

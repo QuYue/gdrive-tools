@@ -25,11 +25,13 @@ gdrive-tools download -f id1 id2 id3 -o ./downloads
 
 #%% Import Packages
 # Basic
+import os
 import sys
 import argparse
 
 # Self-defined
 from .core import GoogleDriveTools
+from .utils import AttrDict
 
 
 #%% Build Parser
@@ -41,36 +43,39 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ----- Commands -----
     parser.add_argument(
-        "--settings",
+        "-s", "--settings",
         default="settings.yaml",
-        help="Path to settings.yaml. Default: settings.yaml"
+        help=(
+            "Override path to settings YAML file."
+            "If omitted, uses 'settings.yaml'."
+            "If the file does not exist or set to 'off', default settings will be used."
+        )
     )
     parser.add_argument(
-        "-c","--cred",
+        "-c", "--cred",
         help=(
-            "Override path to Google OAuth credentials JSON file.",
+            "Override path to Google OAuth credentials JSON file."
             "If omitted, uses settings.google_api.credentials_path."
         )
     )
     parser.add_argument(
-        "-l","--log",
+        "-l", "--log",
         help=(
-            "Override path to log file.", 
-            "If omitted, uses settings.log.",
+            "Override path to log file."
+            "If omitted, uses settings.log."
             "If set to 'off', logs will be printed to standard output."
         )
     )
     parser.add_argument(
-        "-p","--proxy",
+        "-p", "--proxy",
         help=(
-            "Override proxy server address.", 
-            "If omitted, uses settings.proxy.", 
-            "If set to 'off', no proxy will be used (direct connection). ",
+            "Override proxy server address."
+            "If omitted, uses settings.proxy."
+            "If set to 'off', no proxy will be used (direct connection). "
             "Format: [type://]host:port. Type can be in [http, socks4, socks5]. "
             "e.g., 127.0.0.1:1080 | http://127.0.0.1:1080 | socks5://127.0.0.1:1080"
         )
     )
-
     # ----- Subcommands -----
     subparsers = parser.add_subparsers(
         dest="command",
@@ -86,9 +91,9 @@ def build_parser() -> argparse.ArgumentParser:
     upload_parser.add_argument(
         "-n", "--name",
         nargs="+",
-        required=True,
         help=(
             "One or more local file paths to upload. "
+            "If omitted, uses settings.upload.local_file. "
             "e.g., -n data.zip "
             "or -n a.txt b.txt"
         )
@@ -121,10 +126,10 @@ def build_parser() -> argparse.ArgumentParser:
     download_parser.add_argument(
         "-f", "--file-id",
         nargs="+",
-        required=True,
         dest="file_id",
         help=(
             "One or more Google Drive file IDs to download. "
+            "If omitted, uses settings.download.file_id. "
             "e.g., -f 1AbCdEfGhIjK "
             "or  -f id1 id2 id3"
         )
@@ -134,12 +139,11 @@ def build_parser() -> argparse.ArgumentParser:
         dest="out_dir",
         help=(
             "Local directory to save downloaded files. "
-            "If omitted, the current working directory will be used. "
+            "If omitted, uses settings.download.save_local_dir. "
             "Directory will be created automatically if it does not exist. "
             "e.g., -o ./downloads"
         )
     )
-
     # Return the constructed parser
     return parser
 
@@ -151,66 +155,31 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-
+    gdt_args = {}
+"""
     # ---------- Step1. Get Settings and Initialize GoogleDriveTools ----------
     # ----- step 1.1 get base settings from settings.yaml -----
-    gdt_args = {'settings_path': args.settings}
-    print('cred:', args.cred)
+    # settings
+    if args.settings.lower() == "off":
+        settings = None
+    else:
+        settings = args.settings
+    gdt_args = {'settings_path': settings}
+    # cred
     if args.cred:
         gdt_args['cred_file'] = args.cred
-    print('log:', args.log)
+    # log
     if args.log:
-        if args.log.lower() == "off":
-            gdt_args['log_file'] = None
-        else:
-            gdt_args['log_file'] = args.log
-    print('proxy:', args.proxy)
+        gdt_args['log'] = args.log
+    # proxy
     if args.proxy:
-        if args.proxy.lower() == "off":
-            gdt_args['proxy'] = None
-        else:
-            gdt_args['proxy'] = args.proxy
-    
-"""
-    ## step 1.2 initialize tools with settings.yaml
-    gdt = GoogleDriveTools(**gdt_args)
+        gdt_args['proxy'] = args.proxy
 
-    # ## step 1.2 override settings if CLI args provided
-    # if args.cred:
-    #     try:
-    #         gdt.settings.google_drive.credentials_file = args.cred
-    #     except AttributeError:
-    #         gdt.logger.warning("CLI --cred provided, but settings.google_drive.credentials_file not found.")
+    # ----- step 1.2 initialize GoogleDriveTools -----
+    gdt = GoogleDriveTools(**gdt_args, show_settings=True)
 
-    # if args.log:
-    #     # e.g., settings.log.path 或 upload.log
-    #     if args.log.lower() == "stdout":
-    #         # 具体如何重建 logger，看你 core.py 里怎么写的
-    #         gdt.logger.info("CLI --log=stdout provided, logging will go to stdout if supported.")
-    #         # 这里可以选择调用你在 core 里写的重建 logger 的函数
-    #     else:
-    #         try:
-    #             gdt.settings.log.path = args.log
-    #         except AttributeError:
-    #             try:
-    #                 gdt.settings.upload.log = args.log
-    #             except AttributeError:
-    #                 gdt.logger.warning("CLI --log provided, but no matching log path in settings.")
-    # if args.proxy:
-    #     # "disable" 的特殊逻辑
-    #     if args.proxy.lower() == "disable":
-    #         try:
-    #             gdt.settings.proxy = None
-    #         except AttributeError:
-    #             gdt.logger.warning("CLI --proxy=disable provided, but settings.proxy.proxy_server not found.")
-    #     else:
-    #         try:
-    #             gdt.settings.proxy = args.proxy
-    #         except AttributeError:
-    #             gdt.logger.warning("CLI --proxy provided, but settings.proxy.proxy_server not found.")
-
-    # Step 2. Handle Sub-Commands
-    ## step 2.1 upload
+    # ---------- Step 2. Handle Sub-Commands ----------
+    # ----- step 2.1 upload ----- 
     if args.command == "upload":
         # args.name: list[str]
         # args.save_name: list[str] or None
@@ -224,10 +193,6 @@ def main(argv: list[str] | None = None) -> int:
             save_file_name=save_names,
             folder_id=folder_id
         )
-        # Print summary to stdout
-        for src, fid in results:
-            print(f"Uploaded: {src} -> fileId={fid}")
-
     elif args.command == "download":
         # args.file_id: list[str]
         # args.out_dir: str or None
@@ -237,14 +202,6 @@ def main(argv: list[str] | None = None) -> int:
             file_id=file_ids,
             save_local_dir=out_dir
         )
-
-        # results 可能含有 None（下载失败的情况）
-        for fid, path in zip(file_ids, results):
-            if path is None:
-                print(f"Download failed: fileId={fid}", file=sys.stderr)
-            else:
-                print(f"Downloaded: fileId={fid} -> {path}")
-
     else:
         # 理论上不会到这里，因为 subparsers 设置了 required=True
         parser.error("Unknown command.")
@@ -253,7 +210,6 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 """
 
-
+#%% Run Main
 if __name__ == "__main__":
     raise SystemExit(main())
-# %%

@@ -52,6 +52,8 @@ if __name__ == "__main__":
             Log file path.
             log = None (use setting.log) | "off" (use stdout) | other string (override setting.log).
             e.g., "log.txt"
+        show_settings : bool
+            Whether to print loaded settings to console. Default: False.
     """
     gdt = GoogleDriveTools(cred_file="./Json/credentials.json", 
                            proxy="socks5://127.0.0.1:1080",
@@ -73,8 +75,8 @@ if __name__ == "__main__":
             Name(s) to use on Drive. If None, use local filenames.
         folder_id : str or None
             Drive folder ID. If None, upload to root or settings.upload.save_folder_id.
-        chunksize : int
-            Chunk size for resumable upload in bytes. Default chunk size 100MB (1024*1024*100) .
+        chunksize : int or None
+            Chunk size for resumable upload in bytes. If None, use settings.upload.chunksize.
             
         Returns 
         -------
@@ -88,7 +90,8 @@ if __name__ == "__main__":
     """
     def download(self,
                  file_id: str | list[str] | None = None,
-                 save_local_dir: str | None = None) -> list[str]:
+                 save_local_dir: str | None = None,
+                 chunksize=1024*1024*100) -> list[str]:
         Download one or multiple files from Google Drive.
 
         Parameters
@@ -96,10 +99,10 @@ if __name__ == "__main__":
         file_id : str or list[str] or None
             One file ID or a list of file IDs. If None, use settings.download.file_id.
         save_local_dir : str or list[str] or None
-            Local directory to save file(s). If None, use current working directory.
-        chunksize : int
-            Chunk size for resumable download in bytes. Default chunk size 100MB (1024*1024*100) .
-            
+            Local directory to save file(s). If None, use csettings.download.save_local_dir.
+        chunksize : int or None
+            Chunk size for resumable download in bytes. If None, use settings.download.chunksize.
+
         Returns
         -------
         list[str]

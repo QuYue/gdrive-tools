@@ -46,13 +46,12 @@ log: null
 # Upload Settings
 # ============================================================
 upload:
-
   # Local file path or list of local files to upload.
   # Examples:
   #   - "data.zip"
   #   - ["a.txt", "b.txt"]
   # If null, must be provided by CLI argument -n / --name.
-  local_file: file_path
+  local_file: ['settings.yaml', 'requirements.txt']
 
   # The filename(s) to be used in Google Drive.
   # If null, Google Drive will use the local filename(s) by default.
@@ -63,6 +62,10 @@ upload:
   # If null, uploads to the root directory ("My Drive").
   save_folder_id: null
 
+  # Chunk size for resumable upload in bytes.
+  # Default chunk size 10MB (1024*1024*10).
+  chunksize: 10485760
+
 
 # ============================================================
 # Download Settings
@@ -70,8 +73,8 @@ upload:
 download:
 
   # Local directory to save downloaded files.
-  # If null, files are saved to the current working directory.
-  save_local_dir: null
+  # If null, files are saved to the './download'.
+  save_local_dir: './download'
 
   # The file id(s) to download from Google Drive.
   # Examples:
@@ -79,5 +82,9 @@ download:
   #   - ["1A2B3C4D5E6F7G8H9I0J", "0J9I8H7G6F5E4D3C2B1A"]
   # Must match the length of save_local_file if both are lists.
   file_id: file_id
+
+  # Chunk size for resumable download in bytes.
+  # Default chunk size 10MB (1024*1024*10).
+  chunksize: 10485760
 
 
