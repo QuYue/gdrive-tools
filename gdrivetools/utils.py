@@ -7,6 +7,10 @@
 @Desc:    :   utils
 '''
 
+
+#%% Import Packages
+import math
+
 #%% AttrDict
 class AttrDict(dict):
     """
@@ -54,42 +58,14 @@ class AttrDict(dict):
             raise AttributeError(key)
 
 
-#%% Proxy
-def parse_proxy(proxy_str: str,
-                default_port: int = 1080,
-                default_type: str = "http") -> tuple[str, str, int]:
-    """
-    Parse proxy string and return (proxy_type, host, port).
-    Supported formats:
-        - "127.0.0.1:1080"
-        - "http://127.0.0.1:1080"
-        - "socks5://127.0.0.1:1080"
-        - "socks4://127.0.0.1:1080"
-        - "127.0.0.1"
-        - "localhost"
-    """
-    proxy = proxy_str.strip()
-    proxy_type = default_type.lower()
+#%% Size
+def human_size(n, precision=2):
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    if n <= 0:
+        return "0 B"
+    i = int(math.floor(math.log(n, 1024)))
+    p = math.pow(1024, i)
+    s = round(n / p, precision)
+    return f"{s} {units[i]}"
 
-    # Check proxy type
-    if "://" in proxy:
-        proto, proxy = proxy.split("://", 1)
-        proxy_type = proto.lower()
-
-    # normalize acceptable type values
-    if proxy_type not in ["http", "https", "socks", "socks4", "socks5"]:
-        proxy_type = default_type
-    # "socks" should be treated as "socks5"
-    if proxy_type == "socks":
-        proxy_type = "socks5"
-
-    # Extract host and port
-    if ":" in proxy:
-        host, port = proxy.split(":", 1)
-        port = int(port)
-    else:
-        host = proxy
-        port = default_port
-
-    return proxy_type, host, port
 

@@ -25,8 +25,6 @@ google_drive:
 # ============================================================
 # Proxy Settings
 # ============================================================
-proxy:
-
   # Proxy server used for Google Drive upload (optional).
   # Supported formats:
   #   - 127.0.0.1:1080
@@ -34,7 +32,14 @@ proxy:
   #   - socks4://127.0.0.1:1080
   #   - socks5://127.0.0.1:1080
   # If null, no proxy is used.
-  proxy_server: socks://127.0.0.1:1080
+proxy: null # socks://127.0.0.1:1080
+
+# ============================================================
+# Log Settings
+# ============================================================
+  # Log file name.
+  # If null, log messages are printed to console only.
+log: null
 
 
 # ============================================================
@@ -58,10 +63,10 @@ upload:
   # If null, uploads to the root directory ("My Drive").
   save_folder_id: null
 
-  # Log file name.
-  # If null, log messages are printed to console only.
-  log: null
 
+# ============================================================
+# Download Settings
+# ============================================================
 download:
 
   # Local directory to save downloaded files.
@@ -73,10 +78,6 @@ download:
   #   - "1A2B3C4D5E6F7G8H9I0J"
   #   - ["1A2B3C4D5E6F7G8H9I0J", "0J9I8H7G6F5E4D3C2B1A"]
   # Must match the length of save_local_file if both are lists.
-  fild_id: file_id
-
-  # Log file name.
-  # If null, log messages are printed to console only.
-  log: null
+  file_id: file_id
 
 

@@ -46,19 +46,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to settings.yaml. Default: settings.yaml"
     )
     parser.add_argument(
-        "--cred",
-        help="Override path to Google OAuth credentials JSON file. If omitted, uses settings.google_api.credentials_path."
-    )
-    parser.add_argument(
-        "--log",
-        help="Override path to log file. If omitted, uses settings.log.path. If set to 'stdout', logs will be printed to standard output."
-    )
-    parser.add_argument(
-        "--proxy",
+        "-c","--cred",
         help=(
-            "Override proxy server address. If omitted, uses settings.proxy.proxy_server. If set to 'disable', no proxy will be used. "
+            "Override path to Google OAuth credentials JSON file.",
+            "If omitted, uses settings.google_api.credentials_path."
+        )
+    )
+    parser.add_argument(
+        "-l","--log",
+        help=(
+            "Override path to log file.", 
+            "If omitted, uses settings.log.",
+            "If set to 'off', logs will be printed to standard output."
+        )
+    )
+    parser.add_argument(
+        "-p","--proxy",
+        help=(
+            "Override proxy server address.", 
+            "If omitted, uses settings.proxy.", 
+            "If set to 'off', no proxy will be used (direct connection). ",
             "Format: [type://]host:port. Type can be in [http, socks4, socks5]. "
-            "Examples: 127.0.0.1:1080 | http://127.0.0.1:1080 | socks5://127.0.0.1:1080"
+            "e.g., 127.0.0.1:1080 | http://127.0.0.1:1080 | socks5://127.0.0.1:1080"
         )
     )
 
@@ -143,43 +152,62 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    # Step1. Get Settings and Initialize GoogleDriveTools
-    ## step 1.1 initialize tools with settings.yaml
-    gdt = GoogleDriveTools(settings_path=args.settings)
-
-    ## step 1.2 override settings if CLI args provided
+    # ---------- Step1. Get Settings and Initialize GoogleDriveTools ----------
+    # ----- step 1.1 get base settings from settings.yaml -----
+    gdt_args = {'settings_path': args.settings}
+    print('cred:', args.cred)
     if args.cred:
-        try:
-            gdt.settings.google_drive.credentials_file = args.cred
-        except AttributeError:
-            gdt.logger.warning("CLI --cred provided, but settings.google_drive.credentials_file not found.")
-
+        gdt_args['cred_file'] = args.cred
+    print('log:', args.log)
     if args.log:
-        # e.g., settings.log.path 或 upload.log
-        if args.log.lower() == "stdout":
-            # 具体如何重建 logger，看你 core.py 里怎么写的
-            gdt.logger.info("CLI --log=stdout provided, logging will go to stdout if supported.")
-            # 这里可以选择调用你在 core 里写的重建 logger 的函数
+        if args.log.lower() == "off":
+            gdt_args['log_file'] = None
         else:
-            try:
-                gdt.settings.log.path = args.log
-            except AttributeError:
-                try:
-                    gdt.settings.upload.log = args.log
-                except AttributeError:
-                    gdt.logger.warning("CLI --log provided, but no matching log path in settings.")
+            gdt_args['log_file'] = args.log
+    print('proxy:', args.proxy)
     if args.proxy:
-        # "disable" 的特殊逻辑
-        if args.proxy.lower() == "disable":
-            try:
-                gdt.settings.proxy.proxy_server = None
-            except AttributeError:
-                gdt.logger.warning("CLI --proxy=disable provided, but settings.proxy.proxy_server not found.")
+        if args.proxy.lower() == "off":
+            gdt_args['proxy'] = None
         else:
-            try:
-                gdt.settings.proxy.proxy_server = args.proxy
-            except AttributeError:
-                gdt.logger.warning("CLI --proxy provided, but settings.proxy.proxy_server not found.")
+            gdt_args['proxy'] = args.proxy
+    
+"""
+    ## step 1.2 initialize tools with settings.yaml
+    gdt = GoogleDriveTools(**gdt_args)
+
+    # ## step 1.2 override settings if CLI args provided
+    # if args.cred:
+    #     try:
+    #         gdt.settings.google_drive.credentials_file = args.cred
+    #     except AttributeError:
+    #         gdt.logger.warning("CLI --cred provided, but settings.google_drive.credentials_file not found.")
+
+    # if args.log:
+    #     # e.g., settings.log.path 或 upload.log
+    #     if args.log.lower() == "stdout":
+    #         # 具体如何重建 logger，看你 core.py 里怎么写的
+    #         gdt.logger.info("CLI --log=stdout provided, logging will go to stdout if supported.")
+    #         # 这里可以选择调用你在 core 里写的重建 logger 的函数
+    #     else:
+    #         try:
+    #             gdt.settings.log.path = args.log
+    #         except AttributeError:
+    #             try:
+    #                 gdt.settings.upload.log = args.log
+    #             except AttributeError:
+    #                 gdt.logger.warning("CLI --log provided, but no matching log path in settings.")
+    # if args.proxy:
+    #     # "disable" 的特殊逻辑
+    #     if args.proxy.lower() == "disable":
+    #         try:
+    #             gdt.settings.proxy = None
+    #         except AttributeError:
+    #             gdt.logger.warning("CLI --proxy=disable provided, but settings.proxy.proxy_server not found.")
+    #     else:
+    #         try:
+    #             gdt.settings.proxy = args.proxy
+    #         except AttributeError:
+    #             gdt.logger.warning("CLI --proxy provided, but settings.proxy.proxy_server not found.")
 
     # Step 2. Handle Sub-Commands
     ## step 2.1 upload
@@ -223,7 +251,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     return 0
+"""
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+# %%

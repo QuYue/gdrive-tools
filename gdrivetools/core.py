@@ -18,6 +18,7 @@ import yaml
 import socks
 import httplib2
 
+# Google API
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -26,7 +27,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 # Self-defined
-from .utils import AttrDict, parse_proxy
+from .utils import AttrDict, human_size
 
 
 #%% GoogleDriveTools
@@ -36,43 +37,84 @@ class GoogleDriveTools:
     files using settings.yaml and optional proxy.
     """
 
-    def __init__(self, settings_path: str = "settings.yaml"):
-        self.settings = self.load_settings(settings_path, inplaces=False)
-        self.logger = self.setup_logger(self.settings.upload.log, inplaces=False)
-        
-        # Proxy
-        socket.setdefaulttimeout(60)
-        self.set_proxy(self.settings.proxy.proxy_server)
+    def __init__(self, settings_path: str | None = None, *,
+        # Manual override parameters:
+        cred_file=None,
+        proxy=None,
+        log=None):
+        """
+        Initialize GoogleDriveTools.
 
-        # Build Drive service
-        self.service = self._build_drive_service()
+        Parameters
+        ----------
+        settings_path : str | None
+            Path to settings.yaml file. If None, use default settings and 'cred_file' must be provided.
 
-    def set_proxy(self, proxy_str: str | None):
-        # Set up proxy for HTTP requests
-        # step 1. clear all environment proxies to avoid interference
-        for key in [
-            "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
-            "http_proxy", "https_proxy", "no_proxy",
-            "ALL_PROXY", "all_proxy"]:
-            os.environ.pop(key, None)
-        # step 2. Set proxy from settings
-        proxy_str = self.settings.proxy.proxy_server
-        self.proxy = None
-        if proxy_str:
-            self.proxy = self._build_proxy_info(proxy_str)
-            if self.proxy:
-                # step 3. Set os environment
-                if self.proxy['ptype'] in ("http", "https"):
-                    os.environ["HTTP_PROXY"]  = f"http://{self.proxy['host']}:{self.proxy['port']}"
-                    os.environ["HTTPS_PROXY"] = f"http://{self.proxy['host']}:{self.proxy['port']}"
-                elif self.proxy['ptype'] in ("socks", "socks5"):
-                    os.environ["ALL_PROXY"] = f"socks5://{self.proxy['host']}:{self.proxy['port']}"
-                elif self.proxy['ptype'] == "socks4":
-                    os.environ["ALL_PROXY"] = f"socks4://{self.proxy['host']}:{self.proxy['port']}"
-                self.logger.info("Using proxy %s://%s:%s",
-                                self.proxy["ptype"], self.proxy["host"], self.proxy["port"])
+        Manual override parameters (optional)
+        ------------------------------------
+        cred_file : str | None 
+            Google API credentials file (get it from Google Cloud Console). If setting_path is None, must be provided here.
+            cred_file = None (use setting.google_drive.credentials_file) |  str (override setting.google_drive.credentials_file)
+        proxy : str | None  
+            Proxy server for HTTP requests.
+            proxy = None (use setting.proxy) | "off" (direct connection) | other string (override setting.proxy).
+            e.g., "http://127.0.0.1:1080", "socks4://127.0.0.1:1080", "socks5://127.0.0.1:1080".
+        log : str | None   
+            Log file path.
+            log = None (use setting.log) | "off" (use stdout) | other string (override setting.log).
+            e.g., "log.txt"
+        """
+
+        # ---------- Step 1. Load settings ----------
+        if settings_path is not None:
+            self.settings = self.load_settings(settings_path, inplaces=False)
         else:
-            self.logger.info("No proxy configured. Using direct connection.")
+            # No settings.yaml → create an empty config structure
+            self.settings = AttrDict({
+                    "google_drive": AttrDict({
+                        "credentials_file": None,
+                        "save_token": True,
+                        "save_token_file": './Json/token.json',
+                        "oauth_scope": ["https://www.googleapis.com/auth/drive.file"]
+                    }),
+                    "proxy": None,
+                    "log": None,
+                    "upload": AttrDict({
+                        "local_file": None,
+                        "save_file_name": None,
+                        "save_folder_id": None,
+                    }),
+                    "download": AttrDict({
+                        "save_local_dir": None,
+                        "file_id": None,     
+                    })
+                })
+        
+        
+        # ---------- Step 2. Apply manual overrides ----------
+        if cred_file is not None:
+            self.settings.google_drive.credentials_file = cred_file
+        if proxy is not None:
+            # proxy = None (use setting.proxy) | "off" (override to direct connection) |  else override by proxy
+            if proxy.lower() == "off":
+                proxy = None
+            self.settings.proxy = proxy
+        if log is not None:
+            # log = None (use setting.log) | "off" (override to stdout) |  else override by log_file
+            if log.lower() == "off":
+                log = None
+            self.settings.log = log
+        self.logger = self.set_logger(self.settings.log, inplaces=False)
+        # check
+        if self.settings.google_drive.credentials_file is None:
+            raise ValueError("Google Drive credentials_file must be specified in 'settings.yaml' or via cred_file parameter.")
+
+        # ---------- Step 3. Set Proxy ----------
+        socket.setdefaulttimeout(60)
+        self.set_proxy(self.settings.proxy)
+
+        # ---------- Step 4. Build Drive service ----------
+        self.service = self._build_drive_service()
         
     def load_settings(self, path: str, inplaces: bool = True) -> AttrDict:
         with open(path, "r", encoding="utf-8") as f:
@@ -83,17 +125,18 @@ class GoogleDriveTools:
         else:
             return AttrDict(data)
         
-    def setup_logger(self, log_file=None, inplaces=True) -> logging.Logger:
+    def set_logger(self, log_file=None, inplaces=True) -> logging.Logger:
         logger = logging.getLogger("gdrive")
         logger.setLevel(logging.INFO)
+        # Clear existing handlers
+        if logger.hasHandlers():
+            logger.handlers.clear()
+        # Create log folder if needed
+        if log_file:
+            log_folder = os.path.dirname(log_file)
+            if log_folder and not os.path.exists(log_folder):
+                os.makedirs(log_folder, exist_ok=True)
 
-        # Avoid duplicate handlers if setup_logger is called multiple times
-        if logger.handlers:
-            if inplaces:
-                self.logger = logger
-                return self.logger
-            else:
-                return logger
         # Handlers
         formatter = logging.Formatter(
             "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -114,6 +157,32 @@ class GoogleDriveTools:
             return self.logger
         else:
             return logger
+
+    def set_proxy(self, proxy_str: str | None):
+        # Set up proxy for HTTP requests
+        # ---------- step 1. clear all environment proxies to avoid interference ----------
+        for key in [
+            "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+            "http_proxy", "https_proxy", "no_proxy",
+            "ALL_PROXY", "all_proxy"]:
+            os.environ.pop(key, None)
+        # ---------- step 2. Set proxy from settings ----------
+        self.proxy = None
+        if proxy_str:
+            self.proxy = self._build_proxy_info(proxy_str)
+            if self.proxy:
+                # ---------- step 3. Set os environment ----------
+                if self.proxy['ptype'] in ("http", "https"):
+                    os.environ["HTTP_PROXY"]  = f"http://{self.proxy['host']}:{self.proxy['port']}"
+                    os.environ["HTTPS_PROXY"] = f"http://{self.proxy['host']}:{self.proxy['port']}"
+                elif self.proxy['ptype'] in ("socks", "socks5"):
+                    os.environ["ALL_PROXY"] = f"socks5://{self.proxy['host']}:{self.proxy['port']}"
+                elif self.proxy['ptype'] == "socks4":
+                    os.environ["ALL_PROXY"] = f"socks4://{self.proxy['host']}:{self.proxy['port']}"
+                self.logger.info("Using proxy %s://%s:%s",
+                                self.proxy["ptype"], self.proxy["host"], self.proxy["port"])
+        else:
+            self.logger.info("No proxy configured. Using direct connection.")
         
     def _build_proxy_info(self, proxy_str: str | None):
         # Build httplib2.ProxyInfo from proxy_str
@@ -143,7 +212,7 @@ class GoogleDriveTools:
 
     def _build_drive_service(self):
         # Build Google Drive API service
-        # step 1. Load settings
+        # ---------- step 1. Load settings ----------
         gd = self.settings.google_drive
         scopes = gd.oauth_scope
         credentials_path = gd.credentials_file
@@ -151,7 +220,7 @@ class GoogleDriveTools:
         save_token = bool(gd.save_token)
         creds = None
 
-        # step 2. Get OAuth token
+        # ---------- step 2. Get OAuth token ----------
         # load existing OAuth token from token file (if enabled)
         if save_token and os.path.exists(token_path):
             try:
@@ -188,7 +257,7 @@ class GoogleDriveTools:
                     f.write(creds.to_json())
                 self.logger.info("Token saved to %s", token_path)
 
-        # step 3. Build HTTP client: with or without proxy
+        # ---------- step 3. Build HTTP client: with or without proxy ----------
         if self.proxy:
             base_http = httplib2.Http(timeout=120, proxy_info=self.proxy["info"])
             self.logger.info("Using proxy connection: %s://%s:%s.",
@@ -197,6 +266,7 @@ class GoogleDriveTools:
             base_http = httplib2.Http(timeout=120)
             self.logger.info("Using direct connection.")
         authed_http = AuthorizedHttp(creds, http=base_http)
+        # base_http.redirect_codes = base_http.redirect_codes - {308}
 
         service = build("drive", "v3", http=authed_http, cache_discovery=False)
         self.logger.info("Google Drive service initialized.")
@@ -206,7 +276,8 @@ class GoogleDriveTools:
     def upload(self,
                local_file=None,
                save_file_name=None,
-               folder_id=None) -> list[tuple[str, str]]:
+               folder_id=None,
+               chunksize=1024*1024*10) -> list[tuple[str, str]]:
         """
         Upload one or multiple files to Google Drive.
         Parameters
@@ -217,7 +288,9 @@ class GoogleDriveTools:
             Name(s) to use on Drive. If None, use local filenames.
         folder_id : str or None
             Drive folder ID. If None, upload to root or settings.upload.save_folder_id.
-
+        chunksize : int
+            Chunk size for resumable upload in bytes. Default chunk size 10MB (1024*1024*10) .
+            
         Returns 
         -------
         List of (local_path, file_id)
@@ -249,8 +322,8 @@ class GoogleDriveTools:
         if len(save_names_list) != len(local_files_list):
             raise ValueError("save_file_name must be None, or a list of the same length as local_file.")
         # Check local files exist
-        for local_files in local_files_list:
-            if not os.path.exists(local_files):
+        for local_file in local_files_list:
+            if not os.path.exists(local_file):
                 raise FileNotFoundError(f"Local file not found: {local_file}")
 
         # Upload files
@@ -259,14 +332,15 @@ class GoogleDriveTools:
             self.logger.info("Upload Progress: [ %d / %d ]", n+1, len(local_files_list))
             local_file = local_files_list[n]
             save_file_name = save_names_list[n]
-            file_id = self._upload_single(local_file, save_file_name, folder_id)
+            file_id = self._upload_single(local_file, save_file_name, folder_id, chunksize=chunksize)
             results.append((local_file, file_id))
         return results
 
     def _upload_single(self, 
                        local_file: str,
                        save_file_name: str | None,
-                       folder_id: str | None) -> str:
+                       folder_id: str | None,
+                       chunksize=1024*1024*100) -> str:
         # If local_file exists
         if not os.path.exists(local_file):
             raise FileNotFoundError(f"Local file not found: {local_file}")
@@ -278,18 +352,27 @@ class GoogleDriveTools:
             file_metadata["parents"] = [folder_id]
         
         # Upload file
-        media = MediaFileUpload(local_file, resumable=True)
+        media = MediaFileUpload(local_file, resumable=True, chunksize=chunksize)
+        file_size_bytes = os.path.getsize(local_file)
         self.logger.info("Uploading %s -> %s ...", local_file, save_file_name)
         request = self.service.files().create(
             body=file_metadata,
             media_body=media,
+            supportsTeamDrives=True,
             fields="id",
         )
         response = None
         while response is None:
             status, response = request.next_chunk()
             if status:
-                self.logger.info("Uploading file: %.2f%%",  status.progress() * 100)
+                uploaded = int(status.progress() * file_size_bytes)
+                self.logger.info(
+                    "Uploading file: %.2f%% (%s / %s)",
+                    status.progress() * 100,
+                    human_size(uploaded),
+                    human_size(file_size_bytes),
+                )
+        self.logger.info("Uploading file: 100.00%% (%s / %s)", human_size(file_size_bytes), human_size(file_size_bytes))
         file_id = response.get("id")
         self.logger.info("Upload finished. File Id=%s", file_id)
         return file_id
@@ -297,7 +380,8 @@ class GoogleDriveTools:
     # ---------- public: download ----------
     def download(self,
                  file_id: str | list[str] | None = None,
-                 save_local_dir: str | None = None) -> list[str]:
+                 save_local_dir: str | None = None,
+                 chunksize=1024*1024*10) -> list[str]:
         """
         Download one or multiple files from Google Drive.
 
@@ -307,6 +391,8 @@ class GoogleDriveTools:
             One file ID or a list of file IDs. If None, use settings.download.file_id.
         save_local_dir : str or list[str] or None
             Local directory to save file(s). If None, use current working directory.
+        chunksize : int
+            Chunk size for resumable download in bytes. Default chunk size 10MB (1024*1024*10) .
 
         Returns
         -------
@@ -338,16 +424,17 @@ class GoogleDriveTools:
         for n in range(len(file_id_list)):
             self.logger.info("Download Progress: [ %d / %d ]", n+1, len(file_id_list))
             file_id = file_id_list[n]
-            local_path = self._download_single(file_id, save_local_dir)
+            local_path = self._download_single(file_id, save_local_dir, chunksize=chunksize)
             results.append(local_path)
         return results
     
     def _download_single(self,
                          file_id: str,
-                         save_local_dir: str | None = None) -> str:
+                         save_local_dir: str | None = None,
+                         chunksize=1024*1024*100) -> str:
         # Check file exists on Drive 
         try:
-            meta = self.service.files().get(fileId=file_id, fields="name").execute()
+            meta = self.service.files().get(fileId=file_id, fields="name,size").execute()
         except Exception as e:
             self.logger.error("Failed to get metadata for file_id=%s: %s", file_id, e)
             return None
@@ -358,23 +445,31 @@ class GoogleDriveTools:
         
         # Prepare 
         file_name = meta.get("name", file_id)
-        print(save_local_dir)
-        print(file_name)
+        size_str = meta.get("size")
+        file_size_bytes = int(size_str) if size_str is not None else 0
         local_path = os.path.join(save_local_dir, file_name)
-
+        self.logger.info("Downloading %s <- %s (id=%s) ...",
+                         local_path, file_name, file_id)
         # Download file
         try:
             request = self.service.files().get_media(fileId=file_id)
             with io.FileIO(local_path, "wb") as fh:
-                downloader = MediaIoBaseDownload(fh, request)
+                downloader = MediaIoBaseDownload(fh, request, chunksize=chunksize)
                 done = False
                 while not done:
                     status, done = downloader.next_chunk()
-                    if status:
-                        self.logger.info(
-                            "Downloading file: %.2f%%",
-                            status.progress() * 100,
-                        )
+                    if status is not None:
+                        downloaded = int(status.progress() * file_size_bytes)
+                        if file_size_bytes > 0:
+                            self.logger.info(
+                                "Downloading file: %.2f%% (%s / %s)",
+                                status.progress() * 100, 
+                                human_size(downloaded),
+                                human_size(file_size_bytes))
+                        else:
+                            self.logger.info(
+                                "Downloading file: %.2f%%",
+                                status.progress() * 100)
         except Exception as e:
             self.logger.error("Download failed for file_id=%s: %s", file_id, e)
             # If download fails, it may leave an incomplete/empty file, which can be optionally removed
@@ -388,3 +483,40 @@ class GoogleDriveTools:
         return local_path
 
 
+def parse_proxy(proxy_str: str,
+                default_port: int = 1080,
+                default_type: str = "http") -> tuple[str, str, int]:
+    """
+    Parse proxy string and return (proxy_type, host, port).
+    Supported formats:
+        - "127.0.0.1:1080"
+        - "http://127.0.0.1:1080"
+        - "socks5://127.0.0.1:1080"
+        - "socks4://127.0.0.1:1080"
+        - "127.0.0.1"
+        - "localhost"
+    """
+    proxy = proxy_str.strip()
+    proxy_type = default_type.lower()
+
+    # Check proxy type
+    if "://" in proxy:
+        proto, proxy = proxy.split("://", 1)
+        proxy_type = proto.lower()
+
+    # normalize acceptable type values
+    if proxy_type not in ["http", "https", "socks", "socks4", "socks5"]:
+        proxy_type = default_type
+    # "socks" should be treated as "socks5"
+    if proxy_type == "socks":
+        proxy_type = "socks5"
+
+    # Extract host and port
+    if ":" in proxy:
+        host, port = proxy.split(":", 1)
+        port = int(port)
+    else:
+        host = proxy
+        port = default_port
+
+    return proxy_type, host, port
