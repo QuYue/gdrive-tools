@@ -232,6 +232,16 @@ class GoogleDriveTools:
             "port": port,
             "info": info,
         }
+    
+    def restart_drive_service(self, remove_token: bool = False):
+        # Rebuild Google Drive API service
+        if remove_token:
+            token_path = self.settings.google_drive.save_token_file
+            if os.path.exists(token_path):
+                os.remove(token_path)
+                self.logger.info("Removed token file: %s", token_path)
+        self.service = self._build_drive_service()
+
 
     def _build_drive_service(self):
         # Build Google Drive API service
@@ -292,7 +302,7 @@ class GoogleDriveTools:
         # base_http.redirect_codes = base_http.redirect_codes - {308}
 
         service = build("drive", "v3", http=authed_http, cache_discovery=False)
-        self.logger.info("Google Drive service initialized.")
+        self.logger.info("Google Drive service built successfully.")
         return service
 
     # ---------- public: upload ----------
@@ -510,6 +520,120 @@ class GoogleDriveTools:
             return None
         self.logger.info("Download finished: %s", local_path)
         return local_path
+    
+    def create_folder(self,
+                      folder_name: str,
+                      parent_folder_id: str | None = None) -> str:
+        """
+        Create a folder on Google Drive.
+
+        Parameters
+        ----------
+        folder_name : str
+            Name of the folder to create.
+        parent_folder_id : str or None
+            ID of the parent folder. If None, create in root.
+
+        Returns
+        -------
+        str
+            The ID of the created folder.
+        """
+        file_metadata = {
+            "name": folder_name,
+            "mimeType": "application/vnd.google-apps.folder"
+        }
+        if parent_folder_id:
+            file_metadata["parents"] = [parent_folder_id]
+
+        folder = self.service.files().create(
+            body=file_metadata,
+            fields="id"
+        ).execute()
+        folder_id = folder.get("id")
+        self.logger.info("Folder created: %s (ID: %s)", folder_name, folder_id)
+        return folder_id
+    
+    def _check_local_files(self, file_list, check_info=None):
+        # Check local files exist
+        info = {"File_num": 0, "Folder_num": 0, "Total_size": 0}
+        for local_file in file_list:
+            if not os.path.exists(local_file):
+                raise FileNotFoundError(f"Local file not found: {local_file}")
+            if os.path.isfile(local_file):
+                info["File_num"] += 1
+                info["Total_size"] += os.path.getsize(local_file)
+            elif os.path.isdir(local_file):
+                info["Folder_num"] += 1
+                sub_files_list = [os.path.join(local_file, f) for f in os.listdir(local_file)]
+                sub_info = self._check_local_files(sub_files_list)
+                info["File_num"] += sub_info["File_num"]
+                info["Folder_num"] += sub_info["Folder_num"]
+                info["Total_size"] += sub_info["Total_size"]
+        if check_info is not None:
+            check_info.update(info)
+        else:
+            check_info = info
+        return check_info
+    
+    def _upload_files(self, local_file_list, folder_id, folder_name=None, chunksize=None, upload_results=None):
+        # Defaults from settings
+        if chunksize is None:
+            chunksize = self.settings.upload.chunksize
+        if folder_name is None:
+            folder_name = "./"
+        if upload_results is None:
+            upload_results = {"folder_id": folder_id, "content": []}
+
+        # Upload files
+        for local_file in local_file_list:
+            if not os.path.exists(local_file):
+                raise FileNotFoundError(f"Local file not found: {local_file}")
+            if os.path.isfile(local_file):
+                file_name = os.path.basename(local_file)
+                file_id = self._upload_single(local_file, file_name, folder_id, chunksize=chunksize)
+                upload_results['content'].append({"file_name": local_file, "file_id": file_id})
+            elif os.path.isdir(local_file):
+                folder_name = os.path.basename(local_file)
+                new_folder_id = self.create_folder(folder_name, parent_folder_id=folder_id)
+                sub_files_list = [os.path.join(local_file, f) for f in os.listdir(local_file)]
+                sub_upload_results = self._upload_files(sub_files_list, new_folder_id, folder_name=folder_name, chunksize=chunksize)
+                upload_results['content'].append(sub_upload_results)
+        return upload_results
+    
+    def upload2(self,
+                local_file=None,
+                folder_id=None,
+                chunksize=None) -> list[tuple[str, str]]:
+        """
+        upload files or folders to google drive
+        
+        :param self: 说明
+        """
+        # Defaults from settings
+        if local_file is None:
+            local_file = self.settings.upload.local_file
+        if folder_id is None:
+            folder_id = self.settings.upload.save_folder_id
+        if chunksize is None:
+            chunksize = self.settings.upload.chunksize
+
+        # Normalize to list (local_file)
+        if isinstance(local_file, (str, os.PathLike)):
+            local_file_list = [str(local_file)]
+        else:
+            local_file_list = list(local_file)
+        
+        # Check
+        check_info = self._check_local_files(local_file_list)
+        self.logger.info("Total need to upload: %d files, %d folders, ( %s )",
+                         check_info["File_num"], check_info["Folder_num"],
+                         human_size(check_info["Total_size"]))
+            
+        # Upload
+        upload_results = self._upload_files(local_file_list, folder_id, chunksize=chunksize)
+        return upload_results
+
 
 
 def parse_proxy(proxy_str: str,
