@@ -21,6 +21,9 @@ google_drive:
   oauth_scope:
     - https://www.googleapis.com/auth/drive.file
 
+  # Whether to use remote authentication
+  remote: False
+
 
 # ============================================================
 # Proxy Settings

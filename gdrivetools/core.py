@@ -41,6 +41,7 @@ class GoogleDriveTools:
         # Manual override parameters:
         cred_file=None,
         proxy=None,
+        remote=None,
         log=None,
         show_settings: bool = False):
         """
@@ -60,6 +61,8 @@ class GoogleDriveTools:
             Proxy server for HTTP requests.
             proxy = None (use setting.proxy) | "off" (direct connection) | other string (override setting.proxy).
             e.g., "http://127.0.0.1:1080", "socks4://127.0.0.1:1080", "socks5://127.0.0.1:1080".
+        remote : bool | None
+            Whether to use remote OAuth authentication (manual URL copy) instead of local server. If None, use setting.google_drive.remote.
         log : str | None   
             Log file path.
             log = None (use setting.log) | "off" (use stdout) | other string (override setting.log).
@@ -82,6 +85,7 @@ class GoogleDriveTools:
                         "credentials_file": None,
                         "save_token": True,
                         "save_token_file": './Json/token.json',
+                        "remote": False,
                         "oauth_scope": ["https://www.googleapis.com/auth/drive.file"]
                     }),
                     "proxy": None,
@@ -117,6 +121,8 @@ class GoogleDriveTools:
                 print('===== proxy: off (direct connection)')
             else:
                 print('===== proxy:', self.settings.proxy)
+        if remote is not None:
+            self.settings.google_drive.remote = remote
         if log is not None:
             # log = None (use setting.log) | "off" (override to stdout) |  else override by log_file
             if log.lower() == "off":
@@ -251,6 +257,7 @@ class GoogleDriveTools:
         credentials_path = gd.credentials_file
         token_path = gd.save_token_file
         save_token = bool(gd.save_token)
+        remote = gd.remote if hasattr(gd, 'remote') else False
         creds = None
 
         # ---------- step 2. Get OAuth token ----------
@@ -281,7 +288,17 @@ class GoogleDriveTools:
                         "Download it from Google Cloud Console.", credentials_path)
                     raise FileNotFoundError(credentials_path)
                 flow = InstalledAppFlow.from_client_secrets_file(credentials_path, scopes)
-                creds = flow.run_local_server(port=0)
+                if not remote:
+                    self.logger.info("Start OAuth authorization (local login)...")
+                    creds = flow.run_local_server(port=0)
+                else:
+                    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # allow http://localhost callback
+                    self.logger.info("Start OAuth authorization (remote login)...")
+                    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+                    print("Please go to this URL to authorize the application:", auth_url)
+                    redirected_url = input("Paste redirected URL here: ").strip()
+                    flow.fetch_token(authorization_response=redirected_url)
+                    creds = flow.credentials
                 self.logger.info("OAuth authorization completed.")
 
             # Save the token for the next run

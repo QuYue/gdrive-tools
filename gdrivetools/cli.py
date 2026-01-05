@@ -76,6 +76,15 @@ def build_parser() -> argparse.ArgumentParser:
             "e.g., 127.0.0.1:1080 | http://127.0.0.1:1080 | socks5://127.0.0.1:1080"
         )
     )
+    parser.add_argument(
+        "--remote",
+        action="store_true",
+        help=(
+            "Use remote authentication."
+            "If omitted, uses settings.google_drive.remote."
+        )
+    )
+    
     # ----- Subcommands -----
     subparsers = parser.add_subparsers(
         dest="command",
@@ -156,7 +165,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     gdt_args = {}
-"""
     # ---------- Step1. Get Settings and Initialize GoogleDriveTools ----------
     # ----- step 1.1 get base settings from settings.yaml -----
     # settings
@@ -171,6 +179,9 @@ def main(argv: list[str] | None = None) -> int:
     # log
     if args.log:
         gdt_args['log'] = args.log
+    # remote
+    if args.remote:
+        gdt_args['remote'] = args.remote
     # proxy
     if args.proxy:
         gdt_args['proxy'] = args.proxy
@@ -208,7 +219,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     return 0
-"""
 
 #%% Run Main
 if __name__ == "__main__":

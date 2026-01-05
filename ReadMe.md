@@ -203,6 +203,7 @@ First, we need to initialize the `GoogleDriveTools` class. We can provide settin
 |settings_path|Path to settings.yaml file. `If None, use default settings and 'cred_file' must be provided.`|String, None|None|"./settings.yaml"|
 |cred_file|Google API credentials file (get it from Google Cloud Console). `If setting_path = None, must be provided here.` If cred_file = None,use setting.google_drive.credentials_file.|String, None|None|"./Json/credentials.json"|
 |proxy|Proxy server for HTTP requests. If proxy = None, use setting.proxy. If proxy= "off", direct connection.|String, None|None|"http://127.0.0.1:1080" "socks4://127.0.0.1:1080" "socks5://127.0.0.1:1080"|
+|remote|Whether to use remote authentication. If remote = None, use setting.google_drive.remote.|Bool, None|None|False|
 |log|Log file path. If log = None, use setting.log. If log = "off", use stdout.|String, None|None|"log.txt"|
 
 - Initialize GDriveTools with settings.yaml file
@@ -301,7 +302,7 @@ gdrive-tools --help
 
 <a id="cu_p"></a>
 ### :gear: 6.2. CLI Parameters
-usage: gdrive-tools [-h] [-s SETTINGS] [-c CRED] [-l LOG] [-p PROXY] {upload,download} ...
+usage: gdrive-tools [-h] [-s SETTINGS] [-c CRED] [-l LOG] [-p PROXY] [--remote] {upload,download} ...
 
 | Argument | Description | Default |
 |---|---|---|
@@ -309,6 +310,7 @@ usage: gdrive-tools [-h] [-s SETTINGS] [-c CRED] [-l LOG] [-p PROXY] {upload,dow
 |-c, <br>--cred | Path to Google OAuth credentials JSON file. <br>If omitted, uses settings.google_api.credentials_path. | settings.google_drive.credentials_file |
 |-l, <br>--log | Path to log file. <br>If omitted, uses settings.log. <br>If set to 'off', logs will be printed to standard output. | settings.txt |
 |-p, <br>--proxy | Proxy server address. <br>If omitted, uses settings.proxy. <br>If set to 'off', no proxy will be used (direct connection). <br>Format: [type://]host:port. Type can be in [http, socks4, socks5]. <br> e.g., 127.0.0.1:1080, http://127.0.0.1:1080, socks5://127.0.0.1:1080| http://127.0.0.1:1080|
+|--remote | Whether to use remote authentication. <br>If omitted, uses settings.google_drive.remote. | settings.google_drive.remote |
 
 <a id="cu_upload"></a>
 ### :arrow_up: 6.3. Upload File(s) to Google Drive
@@ -341,6 +343,10 @@ We can use the `upload` subcommand to upload files to Google Drive.
     ```bash
     gdrive-tools -p socks5://127.0.0.1:1080 upload -n file.txt
     ```
+- Example: Use in a remote environment
+    ```bash
+    gdrive-tools --remote upload -n file.txt
+    ```
 - Example: Specify a different settings file
     ```bash
     gdrive-tools -s ./settings.yaml upload -n file.txt
@@ -371,6 +377,10 @@ We can use the `download` subcommand to download files from Google Drive.
     ```bash
     gdrive-tools -p socks5://127.0.0.1:1080 download -f 1AbCdEfGhIjK
     ```
+- Example: Use in a remote environment
+    ```bash
+    gdrive-tools --remote download -f 1AbCdEfGhIjK
+    ```
 
 <a id="cu_example"></a>
 ### :file_folder: 6.5. Full CLI Examples
@@ -380,7 +390,8 @@ gdrive-tools \
 -s ./settings.yaml \
 -c ./Json/credentials.json \
 -p http://127.0.0.1:1080 \
--l log.txt
+-l log.txt \
+--remote
 upload \
 -n settings.yaml ReadMe.md \
 -s settings_backup.yaml readme_backup.md \
@@ -392,7 +403,8 @@ gdrive-tools \
 -s ./settings.yaml \
 -c ./Json/credentials.json \
 -p http://127.0.0.1:1080 \
--l log.txt
+-l log.txt \
+--remote
 download \
 -f 1AbCdEfGhIjK 0J9I8H7G6
 -o ./downloads
@@ -404,10 +416,19 @@ download \
 ## :shield: 7. OAuth Authentication
 1. First Run
     The first time you run the script, it will prompt you to authorize access to your Google Drive account. The script will:
-	1.	read credentials JSON
-	2.	open a browser
-	3.	ask for Google authorization
-	4.	save token.json automatically to './Json/token.json' if `save_token` is True in settings.yaml. In future runs, the script will reuse this token for authentication. However, if the token expires or is invalid, you will need to re-authorize.
+    - Local Authentication
+        1.	read credentials JSON
+        2.	open a browser
+        3.	ask for Google authorization
+    - Remote Authentication
+        1.	read credentials JSON
+        2.	generate an authorization URL
+        3.	copy the URL to a local machine browser
+        4.  ask for Google authorization
+        5.  the URL will redirect to a page with an authorization code
+        6.	copy the redirected URL back to the remote machine and paste it into the prompt
+
+	Finally, save token.json automatically to './Json/token.json' if `save_token` is True in settings.yaml. In future runs, the script will reuse this token for authentication. However, if the token expires or is invalid, you will need to re-authorize.
 
 2. Future runs
     If the token is valid, the script uses it directly.
