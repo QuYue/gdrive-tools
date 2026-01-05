@@ -576,14 +576,22 @@ class GoogleDriveTools:
             check_info = info
         return check_info
     
+    
     def _upload_files(self, local_file_list, folder_id, folder_name=None, chunksize=None, upload_results=None):
         # Defaults from settings
         if chunksize is None:
             chunksize = self.settings.upload.chunksize
         if folder_name is None:
-            folder_name = "./"
+            if folder_id is None:
+                folder_name = "root"
+            else:
+                try:
+                    meta = self.service.files().get(fileId=folder_id, fields="name").execute()
+                    folder_name = meta.get("name", folder_id)
+                except Exception:
+                    folder_name = None
         if upload_results is None:
-            upload_results = {"folder_id": folder_id, "content": []}
+            upload_results = {"folder_id": folder_id, 'folder_name': folder_name, "content": []}
 
         # Upload files
         for local_file in local_file_list:
@@ -592,7 +600,7 @@ class GoogleDriveTools:
             if os.path.isfile(local_file):
                 file_name = os.path.basename(local_file)
                 file_id = self._upload_single(local_file, file_name, folder_id, chunksize=chunksize)
-                upload_results['content'].append({"file_name": local_file, "file_id": file_id})
+                upload_results['content'].append({"file_name": os.path.basename(local_file), "file_id": file_id})
             elif os.path.isdir(local_file):
                 folder_name = os.path.basename(local_file)
                 new_folder_id = self.create_folder(folder_name, parent_folder_id=folder_id)
@@ -633,8 +641,134 @@ class GoogleDriveTools:
         # Upload
         upload_results = self._upload_files(local_file_list, folder_id, chunksize=chunksize)
         return upload_results
+    
+    def _check_remote_files(self, file_id_list, check_info=None):
+        # Check remote files exist
+        info = {"File_num": 0, "Folder_num": 0, "Total_size": 0}
 
+        for file_id in file_id_list:
+            try:
+                meta = self.service.files().get(fileId=file_id, fields="name,mimeType,size").execute()
+                if_file = '.folder' not in meta.get("mimeType")
+            except:
+                if_file = False
 
+            if if_file:
+                # is a file
+                info["File_num"] += 1
+                size_str = meta.get("size")
+                if size_str is not None:
+                    info["Total_size"] += int(size_str)
+            else:
+                # is a folder
+                info["Folder_num"] += 1
+                children = self._list_children(file_id)
+                sub_file_ids = [f[0] for f in children]
+                sub_info = self._check_remote_files(sub_file_ids)
+                info["File_num"] += sub_info["File_num"]
+                info["Folder_num"] += sub_info["Folder_num"]
+                info["Total_size"] += sub_info["Total_size"]
+        if check_info is not None:
+            check_info.update(info)
+        else:
+            check_info = info
+        return check_info
+    
+    def _list_children(self, folder_id: str):
+        page_token = None
+        files_id = []
+        while True:
+            resp = self.service.files().list(
+                q=f"'{folder_id}' in parents and trashed=false",
+                fields="nextPageToken, files(id,name,mimeType,size)",
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute()
+
+            for f in resp.get("files", []):
+                files_id.append([f["id"], f["name"], f["mimeType"], f.get("size")])
+
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+        return files_id
+    
+    def _download_files(self, remote_file_list, local_dir, folder_id=None, chunksize=None, download_results=None):
+        # Defaults from settings
+        if chunksize is None:
+            chunksize = self.settings.download.chunksize
+        if local_dir is None:
+            local_dir = './'
+        if download_results is None:
+            download_results = {"folder_name": local_dir, "folder_id": folder_id, "content": []}
+        # Download files
+        if not os.path.exists(local_dir):
+            os.makedirs(local_dir, exist_ok=True)
+        for file_id in remote_file_list:
+            connect = False
+            try:
+                meta = self.service.files().get(fileId=file_id, fields="name,mimeType").execute()
+                if_file = '.folder' not in meta.get("mimeType")
+                connect = True
+            except:
+                if_file = False
+            
+            if if_file:
+                # is a file
+                local_path = self._download_single(file_id, local_dir, chunksize=chunksize)
+                download_results['content'].append({"file_name": os.path.basename(local_path), "file_id": file_id})
+            else:
+                # is a folder
+                if not connect:
+                    folder_name = file_id
+                else:
+                    folder_name = meta.get("name", file_id)
+                new_local_dir = os.path.join(local_dir, folder_name)
+                children = self._list_children(file_id)
+                sub_file_ids = [f[0] for f in children]
+                sub_download_results = self._download_files(sub_file_ids, new_local_dir, folder_id=file_id, chunksize=chunksize)
+                download_results['content'].append(sub_download_results)
+        return download_results
+
+            
+    def download2(self,
+                  file_id: str | list[str] | None = None,
+                  save_local_dir: str | None = None,
+                  chunksize=None) -> list[str]:
+        """
+        download files or folders from google drive
+        
+        :param self: 说明
+        """
+        # Defaults from settings
+        if file_id is None:
+            file_id = self.settings.download.file_id
+        if save_local_dir is None:
+            save_local_dir = self.settings.download.save_local_dir
+        if chunksize is None:
+            chunksize = self.settings.download.chunksize
+
+        # Normalize file_id to list
+        if isinstance(file_id, str):
+            file_id_list = [file_id]
+        else:
+            file_id_list = list(file_id)
+
+        # Check
+        # Check save_local_dir exists
+        if (save_local_dir is not None) and (not os.path.exists(save_local_dir)):
+            os.makedirs(save_local_dir, exist_ok=True)
+
+        # Check remote files
+        check_info = self._check_remote_files(file_id_list)
+        self.logger.info("Total need to download: %d files, %d folders, ( %s )",
+                         check_info["File_num"], check_info["Folder_num"],
+                         human_size(check_info["Total_size"]))
+        # Download files
+        download_results = self._download_files(file_id_list, save_local_dir, chunksize=int(chunksize))
+        return download_results
+        
 
 def parse_proxy(proxy_str: str,
                 default_port: int = 1080,

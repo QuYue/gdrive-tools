@@ -17,8 +17,17 @@ from gdrivetools import GoogleDriveTools
 gdt = GoogleDriveTools(settings_path="./settings.yaml",
                        proxy="socks5://127.0.0.1:1080",
                        log=None)
-# %%
-gdt.upload2(local_file="/Users/quyue/Downloads/JetBrainsMono",
-            folder_id=None)
 
 # %%
+# results_up = gdt.upload2(local_file=["/Users/quyue/Downloads/gd_test", "ReadMe.md"],
+#             # folder_id=None,
+#             folder_id='10juIaCK-9zZj7M3cdAcDMcc6PXOuecXA',
+#             folder_id = '1SIOPpcTCYmCgD0HxGIx_Kp7QPY_7glkv'
+#             )
+
+# %%
+a = gdt.download2(['10juIaCK-9zZj7M3cdAcDMcc6PXOuecXA'], 
+                  save_local_dir='./downloads_test', 
+                  chunksize=1024*1024)
+
+# %% 
