@@ -69,7 +69,7 @@ Built for research environments, servers, and automation workflows, `gdrive-tool
 This tool requires Python 3.6+. Please install the required packages via pip:
 
 ```bash
-pip install google-auth-httplib2==0.1.0 google-api-python-client==1.7.8 httplib2==0.15.0 google-auth==1.12.0 google-auth-oauthlib==0.3.0 PyYAML>=6.0.1 PySocks>=1.7.1
+pip install google-auth-httplib2 google-api-python-client httplib2 google-auth== google-auth-oauthlib PyYAML PySocks
 ```
 Alternatively, you can install from requirements.txt:
 
