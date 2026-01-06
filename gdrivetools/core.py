@@ -316,7 +316,8 @@ class GoogleDriveTools:
             base_http = httplib2.Http(timeout=120)
             self.logger.info("Using direct connection.")
         authed_http = AuthorizedHttp(creds, http=base_http)
-        # base_http.redirect_codes = base_http.redirect_codes - {308}
+        # Disable HTTP 308 redirect handling to avoid issues with some proxies
+        base_http.redirect_codes = base_http.redirect_codes - {308}
 
         service = build("drive", "v3", http=authed_http, cache_discovery=False)
         self.logger.info("Google Drive service built successfully.")
